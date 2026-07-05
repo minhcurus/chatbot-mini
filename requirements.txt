@@ -1,0 +1,5 @@
+requests
+markdownify
+python-dotenv
+openai
+tiktoken
