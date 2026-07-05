@@ -1,10 +1,17 @@
+# Never bake real secrets into the image
+.env
+.env.*
+
+# Generated at runtime, not needed in the image itself
+articles/
+manifest.json
+
+# VCS / tooling noise
 __pycache__/
 *.pyc
-.env
-articles/
 .venv/
 venv/
 
-# IMPORTANT: do NOT add ".git" here.
-# manifest_sync.py needs the .git directory inside the container
-# to git fetch/reset/commit/push manifest.json.
+# Docs, not needed inside the image
+*.md
+*.pdf
