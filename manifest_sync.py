@@ -4,6 +4,9 @@ import re
 import subprocess
 
 import requests
+from dotenv import load_dotenv
+
+load_dotenv()
 
 GITHUB_API = "https://api.github.com"
 MANIFEST_PATH = "manifest.json"
@@ -19,7 +22,6 @@ def _detect_repo_slug() -> str:
     slug = os.getenv("RENDER_GIT_REPO_SLUG")
     if slug:
         return slug
-
 
     result = subprocess.run(
         ["git", "remote", "get-url", "origin"],
@@ -91,6 +93,7 @@ def push_manifest():
     with open(MANIFEST_PATH, "rb") as f:
         encoded = base64.b64encode(f.read()).decode("utf-8")
 
+    
     sha = None
     check = requests.get(
         _contents_url(), headers=_headers(),
