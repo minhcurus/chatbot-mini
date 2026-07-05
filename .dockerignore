@@ -1,0 +1,10 @@
+__pycache__/
+*.pyc
+.env
+articles/
+.venv/
+venv/
+
+# IMPORTANT: do NOT add ".git" here.
+# manifest_sync.py needs the .git directory inside the container
+# to git fetch/reset/commit/push manifest.json.
