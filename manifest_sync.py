@@ -1,28 +1,29 @@
+import base64
 import os
 import re
 import subprocess
 
-REPO_DIR = os.getcwd()
+import requests
+
+GITHUB_API = "https://api.github.com"
 MANIFEST_PATH = "manifest.json"
 
 GITHUB_TOKEN = os.getenv("GITHUB_TOKEN")
 
 
 def _detect_repo_slug() -> str:
-    # 1. manual override
     slug = os.getenv("GITHUB_REPOSITORY")
     if slug:
         return slug
 
-    # 2. Render auto-injects this when deploying from a connected repo
     slug = os.getenv("RENDER_GIT_REPO_SLUG")
     if slug:
         return slug
 
-    # 3. fall back to parsing the local git remote (useful for local runs)
+
     result = subprocess.run(
         ["git", "remote", "get-url", "origin"],
-        cwd=REPO_DIR, capture_output=True, text=True,
+        capture_output=True, text=True,
     )
     if result.returncode == 0:
         url = result.stdout.strip()
@@ -45,66 +46,73 @@ def _configured() -> bool:
     return bool(GITHUB_TOKEN and GITHUB_REPOSITORY)
 
 
-def _is_git_repo() -> bool:
-    return os.path.isdir(os.path.join(REPO_DIR, ".git"))
+def _headers():
+    return {
+        "Authorization": f"Bearer {GITHUB_TOKEN}",
+        "Accept": "application/vnd.github+json",
+    }
 
 
-def _run(cmd):
-    result = subprocess.run(cmd, cwd=REPO_DIR, capture_output=True, text=True)
-    if result.returncode != 0:
-        print(f"manifest_sync: `{' '.join(cmd)}` failed: {result.stderr.strip()}")
-    return result
-
-
-def _remote_url() -> str:
-    return f"https://x-access-token:{GITHUB_TOKEN}@github.com/{GITHUB_REPOSITORY}.git"
+def _contents_url() -> str:
+    return f"{GITHUB_API}/repos/{GITHUB_REPOSITORY}/contents/{MANIFEST_PATH}"
 
 
 def pull_latest_manifest():
     if not _configured():
         print("manifest_sync: GITHUB_TOKEN/GITHUB_REPOSITORY not set; skipping pull.")
         return
-    if not _is_git_repo():
-        print("manifest_sync: no .git directory found; skipping pull.")
-        return
 
-    _run(["git", "config", "user.email", "optibot@render.local"])
-    _run(["git", "config", "user.name", "OptiBot Daily Job"])
-    _run(["git", "remote", "set-url", "origin", _remote_url()])
-    _run(["git", "fetch", "origin", GITHUB_BRANCH])
+    resp = requests.get(
+        _contents_url(), headers=_headers(),
+        params={"ref": GITHUB_BRANCH}, timeout=30,
+    )
 
-    reset = _run(["git", "reset", "--hard", f"origin/{GITHUB_BRANCH}"])
-    if reset.returncode == 0:
-        print(f"manifest_sync: pulled latest state from origin/{GITHUB_BRANCH}.")
+    if resp.status_code == 200:
+        data = resp.json()
+        content = base64.b64decode(data["content"]).decode("utf-8")
+        with open(MANIFEST_PATH, "w", encoding="utf-8") as f:
+            f.write(content)
+        print(f"manifest_sync: pulled {MANIFEST_PATH} from "
+              f"{GITHUB_REPOSITORY}@{GITHUB_BRANCH} via GitHub API.")
+    elif resp.status_code == 404:
+        print(f"manifest_sync: {MANIFEST_PATH} not found in repo yet (first run).")
     else:
-        print("manifest_sync: pull failed; continuing with whatever manifest.json is on disk (if any).")
+        print(f"manifest_sync: pull failed ({resp.status_code}): {resp.text[:300]}")
 
 
 def push_manifest():
     if not _configured():
         print("manifest_sync: GITHUB_TOKEN/GITHUB_REPOSITORY not set; skipping push.")
         return
-    if not _is_git_repo():
-        print("manifest_sync: no .git directory found; skipping push.")
-        return
     if not os.path.exists(MANIFEST_PATH):
-        print("manifest_sync: no manifest.json on disk; nothing to push.")
+        print(f"manifest_sync: no {MANIFEST_PATH} on disk; nothing to push.")
         return
 
-    _run(["git", "add", MANIFEST_PATH])
+    with open(MANIFEST_PATH, "rb") as f:
+        encoded = base64.b64encode(f.read()).decode("utf-8")
 
-    diff = _run(["git", "diff", "--cached", "--quiet"])
-    if diff.returncode == 0:
-        print("manifest_sync: manifest.json unchanged; nothing to commit.")
+    sha = None
+    check = requests.get(
+        _contents_url(), headers=_headers(),
+        params={"ref": GITHUB_BRANCH}, timeout=30,
+    )
+    if check.status_code == 200:
+        sha = check.json().get("sha")
+    elif check.status_code != 404:
+        print(f"manifest_sync: could not check existing file "
+              f"({check.status_code}); aborting push.")
         return
 
-    commit = _run(["git", "commit", "-m", "chore: update manifest.json [skip ci]"])
-    if commit.returncode != 0:
-        print("manifest_sync: commit failed; manifest.json changes were NOT pushed.")
-        return
+    payload = {
+        "message": "chore: update manifest.json [skip ci]",
+        "content": encoded,
+        "branch": GITHUB_BRANCH,
+    }
+    if sha:
+        payload["sha"] = sha
 
-    push = _run(["git", "push", "origin", f"HEAD:{GITHUB_BRANCH}"])
-    if push.returncode == 0:
-        print("manifest_sync: committed and pushed manifest.json.")
+    put_resp = requests.put(_contents_url(), headers=_headers(), json=payload, timeout=30)
+    if put_resp.status_code in (200, 201):
+        print("manifest_sync: committed and pushed manifest.json via GitHub API.")
     else:
-        print("manifest_sync: push failed; manifest.json changes were NOT saved to remote.")
+        print(f"manifest_sync: push failed ({put_resp.status_code}): {put_resp.text[:300]}")
