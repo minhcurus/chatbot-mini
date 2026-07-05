@@ -1,7 +1,6 @@
 import json
 import os
 import sys
-from contextlib import ExitStack
 
 from dotenv import load_dotenv
 
@@ -69,16 +68,19 @@ def cold_start_batch_upload(vector_store_id: str):
     if not entries:
         return {}, 0, 0
 
-    with ExitStack() as stack:
-        file_streams = [
-            stack.enter_context(open(filepath, "rb"))
-            for _, _, filepath, _ in entries
-        ]
-        file_batch = client.vector_stores.file_batches.upload_and_poll(
-            vector_store_id=vector_store_id,
-            files=file_streams,
-            chunking_strategy=CHUNKING_STRATEGY,
-        )
+    file_ids = []
+    article_id_to_file_id = {}
+    for article_id, slug, filepath, updated_at in entries:
+        with open(filepath, "rb") as fh:
+            file_obj = client.files.create(file=fh, purpose="assistants")
+        file_ids.append(file_obj.id)
+        article_id_to_file_id[article_id] = file_obj.id
+
+    file_batch = client.vector_stores.file_batches.create_and_poll(
+        vector_store_id=vector_store_id,
+        file_ids=file_ids,
+        chunking_strategy=CHUNKING_STRATEGY,
+    )
 
     if file_batch.file_counts.failed > 0:
         raise RuntimeError(
@@ -86,32 +88,9 @@ def cold_start_batch_upload(vector_store_id: str):
             f"cold-start batch upload."
         )
 
-    # The batch preserves each uploaded file's original filename, but not
-    # our article_id, so map filename -> vector_store_file.id to rebuild
-    # the manifest.
-    filename_to_file_id = {}
-    after = None
-    while True:
-        page = client.vector_stores.file_batches.list_files(
-            vector_store_id=vector_store_id,
-            batch_id=file_batch.id,
-            after=after,
-            limit=100,
-        )
-        for vs_file in page.data:
-            source_file = client.files.retrieve(vs_file.id)
-            filename_to_file_id[source_file.filename] = vs_file.id
-        if not getattr(page, "has_more", False):
-            break
-        after = page.data[-1].id
-
     new_manifest = {}
     for article_id, slug, filepath, updated_at in entries:
-        filename = os.path.basename(filepath)
-        file_id = filename_to_file_id.get(filename)
-        if file_id is None:
-            print(f"Warning: could not resolve vector file id for {filename}")
-            continue
+        file_id = article_id_to_file_id.get(article_id)
         new_manifest[article_id] = {
             "slug": slug,
             "updated_at": updated_at,
@@ -124,8 +103,6 @@ def cold_start_batch_upload(vector_store_id: str):
 def main():
     os.makedirs(OUTPUT_DIR, exist_ok=True)
 
-    # Render's cron container has no persistent disk, so pull the latest
-    # manifest.json committed by the previous run before doing anything else.
     pull_latest_manifest()
 
     manifest = load_manifest()
@@ -135,8 +112,7 @@ def main():
     total_chunks_processed = 0
 
     if not manifest:
-        # True first run: nothing to diff against, so batch-upload
-        # everything in one request instead of looping file-by-file.
+
         print("No manifest found - first run, using batch upload mode.")
         new_manifest, added, total_chunks_processed = cold_start_batch_upload(
             vector_store.id
@@ -159,8 +135,7 @@ def main():
             prev = manifest.get(article_id)
 
             if content is None:
-                # Article now has no usable body (e.g. emptied out) - treat
-                # like a removal if we previously had it embedded.
+
                 if prev and prev.get("vector_file_id"):
                     delete_file(vector_store.id, prev["vector_file_id"])
                     removed += 1
@@ -202,8 +177,7 @@ def main():
                 new_manifest[article_id] = prev
                 skipped += 1
 
-        # Articles that existed in the previous manifest but weren't seen in
-        # this run's fetch at all (deleted/unpublished on the Help Center side)
+
         for old_id, entry in manifest.items():
             if old_id not in seen_ids and entry.get("vector_file_id"):
                 delete_file(vector_store.id, entry["vector_file_id"])
@@ -213,9 +187,7 @@ def main():
     save_manifest(new_manifest)
     push_manifest()
 
-    # Idempotent safety net: make sure the Assistant is wired up to this
-    # vector store even if this environment never ran upload_vector.py's
-    # manual setup step.
+
     attach_vector_store_to_assistant(vector_store.id)
 
     print("\n=== Daily job summary ===")
