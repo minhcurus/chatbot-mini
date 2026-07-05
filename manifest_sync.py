@@ -1,32 +1,3 @@
-"""
-manifest_sync.py
-
-Render's ephemeral cron containers don't have a persistent disk, so
-manifest.json normally wouldn't survive between runs. The original plan
-was to use `git commit` / `git push` inside the container to save it back
-to GitHub — but that doesn't work here: when Render builds a Docker image
-from a connected Git repo, BuildKit does a shallow `git clone --depth 1`
-and strips the `.git` directory out of the build context entirely (this
-is BuildKit's default; keeping it requires BUILDKIT_CONTEXT_KEEP_GIT_DIR,
-which isn't something Render exposes). So there is no `.git` inside the
-running container, and git commands simply have nothing to operate on.
-
-Instead, this reads/writes manifest.json directly through the GitHub
-Contents REST API (https://docs.github.com/en/rest/repos/contents) using
-plain HTTP calls. No git binary, no .git directory needed at all.
-
-Required env var:
-  GITHUB_TOKEN       - a fine-grained PAT with Contents: Read/write on the repo
-
-Repo + branch are auto-detected, in this order:
-  1. GITHUB_REPOSITORY / GITHUB_BRANCH  - manual override, if set
-  2. RENDER_GIT_REPO_SLUG / RENDER_GIT_BRANCH - auto-injected by Render at
-     runtime when the service is deployed from a connected Git repo
-     (format "$username/$reponame")
-  3. `git remote get-url origin` - only works for local dev runs where an
-     actual .git directory exists on disk; branch falls back to "main"
-"""
-
 import base64
 import os
 import re
@@ -49,8 +20,7 @@ def _detect_repo_slug() -> str:
     if slug:
         return slug
 
-    # Local dev fallback: parse `git remote get-url origin`, if a .git
-    # directory actually exists here (it won't inside the Render container).
+
     result = subprocess.run(
         ["git", "remote", "get-url", "origin"],
         capture_output=True, text=True,
@@ -121,9 +91,6 @@ def push_manifest():
     with open(MANIFEST_PATH, "rb") as f:
         encoded = base64.b64encode(f.read()).decode("utf-8")
 
-    # Re-fetch the current sha right before pushing (not reusing the one
-    # from pull_latest_manifest) to avoid a stale-sha 409 conflict if
-    # anything else touched the file while this job was running.
     sha = None
     check = requests.get(
         _contents_url(), headers=_headers(),
