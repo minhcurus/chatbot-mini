@@ -1,8 +1,13 @@
 {
+  "53216900345875": {
+    "slug": "53216900345875-What-Access-Does-OptiSigns-Have-to-My-Account-and-Devices",
+    "updated_at": "2026-07-06T15:29:04Z",
+    "vector_file_id": "file-VyL2sPsh6Sc8hDcQEeMM3a"
+  },
   "53095698149011": {
     "slug": "53095698149011-Using-the-Japan-Earthquake-App",
-    "updated_at": "2026-07-02T14:16:18Z",
-    "vector_file_id": "file-UV2YreXppyvo1LeKAWpKMK"
+    "updated_at": "2026-07-06T14:22:20Z",
+    "vector_file_id": "file-VTLXcwtx7H29bLVt56w5vM"
   },
   "53028011485715": {
     "slug": "53028011485715-How-to-Display-a-Snowflake-Dashboard-with-OptiSigns",
@@ -551,8 +556,8 @@
   },
   "4412065189267": {
     "slug": "4412065189267-Synchronized-playback-Sync-Play-feature",
-    "updated_at": "2026-06-10T19:08:01Z",
-    "vector_file_id": "file-2kMXXFxanq4aLVTvxHdR6R"
+    "updated_at": "2026-07-06T21:29:32Z",
+    "vector_file_id": "file-DUmsruRMPhiYuLk6SJWMLi"
   },
   "4411956075027": {
     "slug": "4411956075027-Clean-install-OptiSigns-on-Raspberry-Pi-Linux",
