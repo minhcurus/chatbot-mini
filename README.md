@@ -53,7 +53,7 @@ main.py           -> orchestrates: diff against manifest.json -> upload only the
 
 ## Daily job
 
-- Runs once/day on **Render Cron Job** at 03:00 AM UTC. Re-scrapes, diffs each article's `updated_at` against `manifest.json`, and only uploads/deletes what changed.
+- Runs once/day on **Render Cron Job** at 23:00 PM UTC (06:00 AM UTC +7). Re-scrapes, diffs each article's `updated_at` against `manifest.json`, and only uploads/deletes what changed.
 - Log output per run: `Added / Updated / Removed / Skipped` counts.
 - **Job logs**: ![Last Run artefact](screenshots/last-run.png)
 
